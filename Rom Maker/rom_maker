@@ -1,0 +1,231 @@
+function readHex(f)
+    local D1 = string.byte(f:read(1))
+    local D2 = string.byte(f:read(1))
+    local D3 = string.byte(f:read(1))
+    local D4 = string.byte(f:read(1))
+    --D = D1 + D2 *256 8 + D3 * 256 * 256 + D4 *256*256*256
+    return D1 + D2 *256 + D3 * 256 * 256 + D4 *256*256*256
+end
+
+dofile('param')
+
+function writeHex(f,num)
+    local str = string.format('%08X',num)
+    local D1 = tonumber(string.sub(str,7),16)
+    local D2 = tonumber(string.sub(str,5,6),16)
+    local D3 = tonumber(string.sub(str,3,4),16)
+    local D4 = tonumber(string.sub(str,1,2),16)
+    --print(str)
+    --print(D1,D2,D3,D4)
+    f:write(B[D1 + 1])
+    f:write(B[D2 + 1])
+    f:write(B[D3 + 1])
+    f:write(B[D4 + 1])
+end
+
+BUFF=8192
+
+function readDate(f,pos,len,dest)
+    print(string.format('offset(0x%X) len(0x%X)',pos,len))
+    f:seek('set',pos)
+    local destF = io.open(dest, 'wb+')
+    while len > 0 do
+        local data = nil
+        if len > BUFF then
+            data = f:read(BUFF)
+            len = len - BUFF
+        else
+            data = f:read(len)
+            len = 0
+        end
+        if data then
+            destF:write(data)
+        end
+        --print('len=',len, data)
+    end
+    destF:flush()
+    destF:close()
+end
+
+--unpack
+function unpackROM()
+    os.execute('cls')
+    print('+------------------+')
+    print('|    Unpack ROM    |')
+    print('+------------------+')
+    print('')
+    print("Please copy ROM file into this folder, and rename to update.img")
+    os.execute('pause')
+    local rom_file=io.open('update.img','rb')
+
+    if not rom_file then
+        print("update.img not found!!")
+        return
+    end
+
+    print("Reading file information...")
+
+    --print("Reading file header...")
+    --print("File header: "..rom_file:read(5))
+
+    rom_file:seek('set',25)
+    --print("Read loader's offset")
+    local L_P = readHex(rom_file)
+    --print("Read loader's len")
+    local L_L = readHex(rom_file)
+    
+    --print("Read update.img's offset")
+    local U_P = readHex(rom_file)
+    --print("Read update.img's len")
+    local U_L = readHex(rom_file)
+
+    
+    --print("Output Loader")
+    readDate(rom_file,L_P,L_L,'Scopad.bin')
+    --print("Output temp.img")
+    readDate(rom_file,U_P,U_L,'temp.img')
+    
+    print("Unpack update.img to Unpack folder")
+    os.execute('AFPTool.exe -unpack temp.img Unpack\\')
+
+    --print('Unpack -- All Done')
+    rom_file:close()
+    os.execute('pause')
+end
+
+function packROM()
+    os.execute('cls')
+    print('+------------------+')
+    print('|     Pack ROM     |')
+    print('+------------------+')
+    print('')
+    print('Please input number')
+    print(' 0 : Internal Memory 504 MB')
+    print(' 1 : Internal Memory 1.0 GB')
+    print(' 2 : Internal Memory 1.5 GB')
+    print(' 3 : Internal Memory 2.0 GB')
+    print(' 4 : Internal Memory 2.5 GB')
+    print(' 5 : Internal Memory 3.0 GB')
+    print(' 6 : Internal Memory 3.5 GB')
+    print(' 7 : Internal Memory 4.0 GB')
+    local m = io.read('*n')
+    os.execute('cls')
+    print('+------------------+')
+    print('|     Pack ROM     |')
+    print('+------------------+')
+    print('')
+    if m == 0 then
+	print('Create Internal Memory 504 MB')
+        os.execute('partition 0')
+    elseif m == 1 then
+	print('Create Internal Memory 1.0 GB')
+        os.execute('partition 1')
+    elseif m == 2 then
+	print('Create Internal Memory 1.5 GB')
+        os.execute('partition 2')
+    elseif m == 3 then
+	print('Create Internal Memory 2.0 GB')
+        os.execute('partition 3')
+    elseif m == 4 then
+	print('Create Internal Memory 2.5 GB')
+        os.execute('partition 4')
+    elseif m == 5 then
+	print('Create Internal Memory 3.0 GB')
+        os.execute('partition 5')
+    elseif m == 6 then
+	print('Create Internal Memory 3.5 GB')
+        os.execute('partition 6')
+    elseif m == 7 then
+	print('Create Internal Memory 4.0 GB')
+        os.execute('partition 7')
+    end
+
+    print('Packing files in Unpack folder to temp_new.img')
+    os.execute('Afptool -pack ./Unpack temp_new.img')
+    
+    print('Get loader\'s and temp_new.img\'s file len')
+    local L_P = 0x66 -- Loader's offset
+    local loader_file = io.open('Scopad.bin','rb+')
+    local L_L = loader_file:seek('end')
+    loader_file:seek('set',0) -- back to start of file
+
+    U_P = L_P + L_L -- temp.img's offset, following loader
+    local temp_file = io.open('temp_new.img','rb+')
+    local U_L = temp_file:seek('end')
+    temp_file:seek('set',0) -- back to start of file
+
+    local T_File = io.open('update.img', 'rb+') -- open pre-packed image
+    local DestF = io.open('update_new.img', 'wb+') --open target file
+    local data = T_File:read(25)
+    DestF:write(data)
+    writeHex(DestF,L_P)
+    writeHex(DestF,L_L)
+    writeHex(DestF,U_P)
+    writeHex(DestF,U_L)
+    T_File:read(16) -- sjip 16 bytes , data is Unkown!!
+    data = T_File:read(102 - 25 - 16)
+    DestF:write(data)
+    DestF:flush()
+    T_File:close()
+    print('Start writing loader')
+    while L_L > 0 do
+        if L_L > BUFF then
+            data = loader_file:read(BUFF)
+            L_L = L_L - BUFF
+        else
+            data = loader_file:read(L_L)
+            L_L = 0
+        end
+        DestF:write(data)
+    end
+    print('Start writing ROM')
+    while U_L > 0 do
+        if U_L > BUFF then
+            data = temp_file:read(BUFF)
+            U_L = U_L - BUFF
+        else
+            data = temp_file:read(U_L)
+            U_L = 0
+        end
+        DestF:write(data)
+    end
+    DestF:flush()
+    DestF:close()
+    print('calculate MD5')
+    os.execute('md5.exe -u update_new.img > md5.txt')
+    local M_File = io.open('md5.txt','r')
+    local md5 = M_File:read(32)
+    M_File:close()
+    print('MD5='..md5)
+    print('Write MD5 into update_new.img')
+    DestF = io.open('update_new.img', 'ab+') --open target file
+    DestF:seek('end')
+    DestF:write(md5)
+    DestF:flush()
+    DestF:close()
+    print('Create ROM Complete!!')
+    print('Use file "update_new.img" to Flash ROM')
+    os.execute('pause')
+end
+
+
+while true do
+    os.execute('cls')
+    print('+------------------+')
+    print('| Scopad ROM Maker |')
+    print('+------------------+')
+    print('Powered by Wendal (http://wendal.net)')
+    print('')
+    print('Please input number')
+    print(' 1 : Unpack ROM')
+    print(' 2 : Pack ROM')
+    print(' 3 : Exit')
+    local m = io.read('*n')
+    if m == 1 then
+        unpackROM()
+    elseif m == 2 then
+        packROM()
+    elseif m == 3 then
+        os.exit(1)
+    end
+end
